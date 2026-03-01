@@ -4,6 +4,7 @@ package example
 
 import (
 	"VideoWeb/biz/dal/mysql"
+	"VideoWeb/biz/dal/redis"
 	format "VideoWeb/biz/handler/common_response_format"
 	example0 "VideoWeb/biz/model/common/example"
 	example "VideoWeb/biz/model/video/example"
@@ -39,6 +40,22 @@ func SearchVideos(ctx context.Context, c *app.RequestContext) {
 		pageSize = 10
 	}
 
+	cacheKey := fmt.Sprintf("video:search:%s:%s:%d:%d", req.Keyword, req.Sort, page, pageSize)
+
+	type SearchResult struct {
+		Items []mysql.Videos
+		Total int64
+	}
+	var cachedResult SearchResult
+	err := redis.GetJSON(cacheKey, &cachedResult)
+	if err == nil && len(cachedResult.Items) > 0 {
+		format.Success(c, "SearchVideo", map[string]interface{}{
+			"items": cachedResult.Items,
+			"total": cachedResult.Total,
+		})
+		return
+	}
+
 	db := mysql.GetDB()
 	var videos []mysql.Videos
 	var total int64
@@ -60,26 +77,12 @@ func SearchVideos(ctx context.Context, c *app.RequestContext) {
 	offset := (page - 1) * pageSize
 	query.Offset(offset).Limit(pageSize).Find(&videos)
 
-	//// 构建返回列表
-	//items := make([]map[string]interface{}, len(videos))
-	//for i, v := range videos {
-	//	items[i] = map[string]interface{}{
-	//		"id":            strconv.FormatInt(int64(v.ID), 10),
-	//		"user_id":       strconv.FormatInt(v.UserID, 10),
-	//		"video_url":     v.VideoURL,
-	//		"title":         v.Title,
-	//		"description":   v.Description,
-	//		"visit_count":   v.Views,
-	//		"like_count":    v.Likes,
-	//		"comment_count": v.Comments,
-	//		"created_at":    v.CreatedAt.Format("2006-01-02 15:04:05"),
-	//		"updated_at":    v.UpdatedAt.Format("2006-01-02 15:04:05"),
-	//		"deleted_at":    "",
-	//	}
-	//	if v.DeletedAt != nil {
-	//		items[i]["deleted_at"] = v.DeletedAt.Format("2006-01-02 15:04:05")
-	//	}
-	//}
+	result := SearchResult{
+		Items: videos,
+		Total: total,
+	}
+	redis.SetJSON(cacheKey, result, 5*time.Minute)
+
 	format.Success(c, "SearchVideo", map[string]interface{}{
 		"items": videos,
 		"total": total,
@@ -103,6 +106,17 @@ func GetHotVideos(ctx context.Context, c *app.RequestContext) {
 		page = 1
 	}
 
+	cacheKey := fmt.Sprintf("video:hot:%s:%d:%d", req.Type, page, limit)
+
+	var cachedVideos []mysql.Videos
+	err := redis.GetJSON(cacheKey, &cachedVideos)
+	if err == nil && len(cachedVideos) > 0 {
+		format.Success(c, "SearchVideo", map[string]interface{}{
+			"items": cachedVideos,
+		})
+		return
+	}
+
 	db := mysql.GetDB()
 	var videos []mysql.Videos
 
@@ -121,6 +135,8 @@ func GetHotVideos(ctx context.Context, c *app.RequestContext) {
 	offset := (page - 1) * limit
 	query.Order("views DESC").Offset(offset).Limit(limit).Find(&videos)
 
+	redis.SetJSON(cacheKey, videos, 10*time.Minute)
+
 	format.Success(c, "SearchVideo", map[string]interface{}{
 		"items": videos,
 	})
@@ -129,7 +145,6 @@ func GetHotVideos(ctx context.Context, c *app.RequestContext) {
 // GetUserVideos .
 // @router /api/users/:user_id/videos [GET]
 func GetUserVideos(ctx context.Context, c *app.RequestContext) {
-	// 从路径参数获取用户ID
 	userIDStr := c.Param("user_id")
 	if userIDStr == "" {
 		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PARAM_ERROR, "user_id is not found")
@@ -157,9 +172,24 @@ func GetUserVideos(ctx context.Context, c *app.RequestContext) {
 		pageSize = 10
 	}
 
+	cacheKey := fmt.Sprintf("video:user:%d:%d:%d", userID, page, pageSize)
+
+	type UserVideoResult struct {
+		Items []mysql.Videos
+		Total int64
+	}
+	var cachedResult UserVideoResult
+	err = redis.GetJSON(cacheKey, &cachedResult)
+	if err == nil && len(cachedResult.Items) > 0 {
+		format.Success(c, "SearchVideo", map[string]interface{}{
+			"items": cachedResult.Items,
+			"total": cachedResult.Total,
+		})
+		return
+	}
+
 	db := mysql.GetDB()
 
-	// 验证用户是否存在
 	var user mysql.Users
 	if err := db.First(&user, userID).Error; err != nil {
 		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PARAM_ERROR, err.Error())
@@ -173,7 +203,13 @@ func GetUserVideos(ctx context.Context, c *app.RequestContext) {
 	query.Count(&total)
 
 	offset := (page - 1) * pageSize
-	query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&videos)
+	query.Order("created_at ASC").Offset(offset).Limit(pageSize).Find(&videos)
+
+	result := UserVideoResult{
+		Items: videos,
+		Total: total,
+	}
+	redis.SetJSON(cacheKey, result, 10*time.Minute)
 
 	format.Success(c, "SearchVideo", map[string]interface{}{
 		"items": videos,

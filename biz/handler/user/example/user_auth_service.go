@@ -4,6 +4,7 @@ package example
 
 import (
 	"VideoWeb/biz/dal/mysql"
+	"VideoWeb/biz/dal/redis"
 	format "VideoWeb/biz/handler/common_response_format"
 	"context"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,8 +27,16 @@ import (
 // @router /api/users/:user_id [GET]
 func GetUserInfo(ctx context.Context, c *app.RequestContext) {
 	id := c.Param("user_id")
+	cacheKey := "user:info:" + id
+
+	var userinfo mysql.Users
+	err := redis.GetJSON(cacheKey, &userinfo)
+	if err == nil && userinfo.Username != "" {
+		format.Success(c, "getInfo", userinfo)
+		return
+	}
+
 	db := mysql.GetDB()
-	userinfo := mysql.Users{}
 	db.Table("users").
 		Select("id, username, avatar_url, created_at, updated_at, nickname, deleted_at").
 		Where("id = ?", id).
@@ -35,8 +45,10 @@ func GetUserInfo(ctx context.Context, c *app.RequestContext) {
 		format.Fail(c, http.StatusNotFound, example0.ErrorCode_PARAM_ERROR, "id is not exist")
 		return
 	}
-	keyword := "getInfo"
-	format.Success(c, keyword, userinfo)
+
+	redis.SetJSON(cacheKey, userinfo, 30*time.Minute)
+
+	format.Success(c, "getInfo", userinfo)
 }
 
 // UploadAvatar .
@@ -47,27 +59,23 @@ func UploadAvatar(ctx context.Context, c *app.RequestContext) {
 		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PARAM_ERROR, "用户ID不能为空")
 		return
 	}
-	// 转换前端传递的ID类型
 	var frontendUserID int64
 	if _, err := fmt.Sscanf(userIDStr, "%d", &frontendUserID); err != nil {
 		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PARAM_ERROR, "无效的用户ID")
 		return
 	}
 
-	// 从Token中提取用户信息
 	claims := jwt.ExtractClaims(ctx, c)
-	tokenUserID, ok := claims["ID"].(float64) // JWT中数字类型会被解析为float64
+	tokenUserID, ok := claims["ID"].(float64)
 	if !ok {
 		format.Fail(c, http.StatusUnauthorized, example0.ErrorCode_PARAM_ERROR, "Token中缺少用户ID")
 		return
 	}
 
-	// 对比ID：确保当前用户只能修改自己的头像
 	if int64(tokenUserID) != frontendUserID {
 		format.Fail(c, http.StatusForbidden, example0.ErrorCode_PARAM_ERROR, "没有权限修改其他用户的头像")
 		return
 	}
-	// 处理文件上传
 	handleAvatarUpload(ctx, c, int64(tokenUserID))
 }
 
@@ -96,34 +104,27 @@ func handleAvatarUpload(ctx context.Context, c *app.RequestContext, userID int64
 		return
 	}
 
-	// 查询旧头像URL
 	db := mysql.GetDB()
 	var oldUser mysql.Users
 	db.First(&oldUser, userID)
 
-	// 删除旧头像文件
 	if oldUser.Avatarurl != "" {
-		// 从URL中提取文件名
 		oldFilename := filepath.Base(oldUser.Avatarurl)
 		oldFilePath := filepath.Join(uploadDir, oldFilename)
 
-		// 删除文件（忽略文件不存在的错误）
 		if err := os.Remove(oldFilePath); err != nil && !os.IsNotExist(err) {
 			log.Printf("删除旧头像失败: %v", err)
 		}
 	}
 
-	// 生成唯一文件名
 	filename := fmt.Sprintf("%d_%s%s", time.Now().Unix(), uuid.New().String()[:8], ext)
 	filePath := filepath.Join(uploadDir, filename)
 
-	// 保存文件（Hertz 的 SaveUploadedFile 接收 *multipart.FileHeader）
 	if err := c.SaveUploadedFile(header, filePath); err != nil {
 		format.Fail(c, http.StatusInternalServerError, example0.ErrorCode_PROGRESS_ERROR, "保存文件失败: "+err.Error())
 		return
 	}
 
-	// 构建头像URL
 	avatarURL := fmt.Sprintf("http://localhost:8888/avatars/%s", filename)
 
 	result := db.Table("users").Where("id = ?", userID).Update("avatar_url", avatarURL)
@@ -132,13 +133,15 @@ func handleAvatarUpload(ctx context.Context, c *app.RequestContext, userID int64
 		return
 	}
 
-	// 查询更新后的用户信息
+	cacheKey := "user:info:" + strconv.FormatInt(userID, 10)
+	redis.Delete(cacheKey)
+
 	var userinfo mysql.Users
 	db.Model(&userinfo).
 		Select("id, username, avatar_url, created_at, updated_at, nickname, deleted_at").
 		Where("id = ?", userID).
 		First(&userinfo)
-	log.Println(userinfo)
-	// 返回成功响应
+
+
 	format.Success(c, "uploadAvatar", userinfo)
 }

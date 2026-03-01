@@ -4,10 +4,13 @@ package example
 
 import (
 	"VideoWeb/biz/dal/mysql"
+	"VideoWeb/biz/dal/redis"
 	format "VideoWeb/biz/handler/common_response_format"
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	example0 "VideoWeb/biz/model/common/example"
 	example "VideoWeb/biz/model/interaction/example"
@@ -45,6 +48,22 @@ func GetCommentList(ctx context.Context, c *app.RequestContext) {
 		pageSize = 10
 	}
 
+	cacheKey := fmt.Sprintf("comment:list:%d:%d:%d", videoID, page, pageSize)
+
+	type CommentListResult struct {
+		Items []mysql.Comments
+		Total int64
+	}
+	var cachedResult CommentListResult
+	err = redis.GetJSON(cacheKey, &cachedResult)
+	if err == nil {
+		format.Success(c, "GetCommentList", map[string]interface{}{
+			"items": cachedResult.Items,
+			"total": cachedResult.Total,
+		})
+		return
+	}
+
 	db := mysql.GetDB()
 
 	var video mysql.Videos
@@ -61,6 +80,12 @@ func GetCommentList(ctx context.Context, c *app.RequestContext) {
 
 	offset := (page - 1) * pageSize
 	query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&comments)
+
+	result := CommentListResult{
+		Items: comments,
+		Total: total,
+	}
+	redis.SetJSON(cacheKey, result, 5*time.Minute)
 
 	format.Success(c, "GetCommentList", map[string]interface{}{
 		"items": comments,

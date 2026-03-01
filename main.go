@@ -4,6 +4,7 @@ package main
 
 import (
 	"VideoWeb/biz/dal/mysql"
+	"VideoWeb/biz/dal/redis"
 	"VideoWeb/biz/my_jwt"
 	"VideoWeb/biz/router"
 	"log"
@@ -17,6 +18,7 @@ func main() {
 		log.Fatal("JWT初始化失败:", err)
 	}
 	db := mysql.InitDB()
+	redis.InitRedis()
 	defer db.Close()
 	h := server.Default(server.WithMaxRequestBodySize(500 * 1024 * 1024))
 	h.StaticFS("/avatars", &app.FS{
@@ -24,6 +26,5 @@ func main() {
 		PathRewrite: app.NewPathSlashesStripper(1), // 去掉第一级路径
 	})
 	router.GeneratedRegister(h)
-
 	h.Spin()
 }

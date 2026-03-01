@@ -44,9 +44,15 @@ func InitJWT() error {
 		},
 
 		LoginResponse: func(ctx context.Context, c *app.RequestContext, code int, message string, expire time.Time) {
-			claims := jwt.ExtractClaims(ctx, c)
-			tokenUserID, _ := claims["ID"].(float64)
-			userID := int64(tokenUserID)
+			//这个时候上下文还没有claim
+			//claims := jwt.ExtractClaims(ctx, c)
+			//log.Println(claims["ID"])
+			//tokenUserID, ok := claims["ID"].(float64)
+			//if ok != true {
+			//	log.Println(claims["ID"])
+			//}
+			//userID := int64(tokenUserID)
+			userID, _ := c.Get(identityKey)
 			db := mysql.GetDB()
 			userinfo := mysql.Users{}
 			db.Table("users").
@@ -87,6 +93,7 @@ func InitJWT() error {
 				err = errors.New("password is wrong")
 				return nil, err
 			}
+			c.Set(identityKey, userData.ID)
 			return &userData, nil
 		},
 

@@ -24,7 +24,7 @@ func _commentsMw() []app.HandlerFunc {
 }
 
 func _createcommentMw() []app.HandlerFunc {
-	return nil
+	return []app.HandlerFunc{my_jwt.AuthMiddleware.MiddlewareFunc()}
 }
 
 func _deletecommentMw() []app.HandlerFunc {

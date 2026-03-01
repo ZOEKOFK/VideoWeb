@@ -4,8 +4,10 @@ package example
 
 import (
 	"VideoWeb/biz/dal/mysql"
+	"VideoWeb/biz/dal/redis"
 	format "VideoWeb/biz/handler/common_response_format"
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -29,7 +31,7 @@ func CreateComment(ctx context.Context, c *app.RequestContext) {
 	userID := int64(tokenUserID)
 
 	var req example.CreateCommentRequest
-	if err := c.Bind(&req); err != nil {
+	if err := c.BindForm(&req); err != nil {
 		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_REQUEST_ERROR, err.Error())
 		return
 	}
@@ -47,14 +49,6 @@ func CreateComment(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	//if req.ParentID != 0 {
-	//	var parentComment dal.Comments
-	//	if err := db.Table("videos").First(&parentComment, req.ParentID).Error; err != nil {
-	//		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_COMMENT_NOT_EXIST, err.Error()+" parent comment is not exist")
-	//		return
-	//	}
-	//}
-
 	comment := mysql.Comments{
 		UserID:   userID,
 		VideoID:  req.VideoID,
@@ -69,6 +63,9 @@ func CreateComment(ctx context.Context, c *app.RequestContext) {
 	}
 
 	db.Model(&mysql.Videos{}).Where("id = ?", req.VideoID).UpdateColumn("comments", gorm.Expr("comments + ?", 1))
+
+	cacheKey := fmt.Sprintf("comment:list:%d:*", req.VideoID)
+	redis.DeleteByPattern(cacheKey)
 
 	format.Success(c, "CreateComment", nil)
 }
@@ -115,6 +112,9 @@ func DeleteComment(ctx context.Context, c *app.RequestContext) {
 	}
 
 	db.Model(&mysql.Videos{}).Where("id = ?", comment.VideoID).UpdateColumn("comments", gorm.Expr("comments - ?", 1))
+
+	cacheKey := fmt.Sprintf("comment:list:%d:*", comment.VideoID)
+	redis.DeleteByPattern(cacheKey)
 
 	format.Success(c, "DeleteComment", nil)
 }

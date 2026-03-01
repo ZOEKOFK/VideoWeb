@@ -4,10 +4,13 @@ package example
 
 import (
 	"VideoWeb/biz/dal/mysql"
+	"VideoWeb/biz/dal/redis"
 	format "VideoWeb/biz/handler/common_response_format"
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	example0 "VideoWeb/biz/model/common/example"
 	example "VideoWeb/biz/model/interaction/example"
@@ -53,10 +56,18 @@ func LikeAction(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	var like mysql.Likes
-	result := db.Where("user_id = ? AND target_id = ? AND type = ?", userID, req.TargetID, req.Type).First(&like)
+	likeKey := fmt.Sprintf("like:%d:%d:%d", userID, req.TargetID, req.Type)
+	countKey := fmt.Sprintf("like:count:%d:%d", req.Type, req.TargetID)
 
 	if req.Status {
+		exists, _ := redis.Exists(likeKey)
+		if exists {
+			format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PARAM_ERROR, "already liked")
+			return
+		}
+
+		var like mysql.Likes
+		result := db.Where("user_id = ? AND target_id = ? AND type = ?", userID, req.TargetID, req.Type).First(&like)
 		if result.Error == nil {
 			format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PARAM_ERROR, "already liked")
 			return
@@ -72,14 +83,20 @@ func LikeAction(ctx context.Context, c *app.RequestContext) {
 			return
 		}
 
+		redis.Set(likeKey, "1")
+		redis.Incr(countKey)
+
 		if req.Type == 1 {
 			db.Model(&mysql.Videos{}).Where("id = ?", req.TargetID).UpdateColumn("likes", gorm.Expr("likes + ?", 1))
+			redis.DeleteByPattern("video:*")
 		} else {
 			db.Model(&mysql.Comments{}).Where("id = ?", req.TargetID).UpdateColumn("likes", gorm.Expr("likes + ?", 1))
 		}
 
 		format.Success(c, "like", nil)
 	} else {
+		var like mysql.Likes
+		result := db.Where("user_id = ? AND target_id = ? AND type = ?", userID, req.TargetID, req.Type).First(&like)
 		if result.Error != nil {
 			format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PARAM_ERROR, "not liked")
 			return
@@ -90,8 +107,12 @@ func LikeAction(ctx context.Context, c *app.RequestContext) {
 			return
 		}
 
+		redis.Delete(likeKey)
+		redis.Decr(countKey)
+
 		if req.Type == 1 {
 			db.Model(&mysql.Videos{}).Where("id = ?", req.TargetID).UpdateColumn("likes", gorm.Expr("likes - ?", 1))
+			redis.DeleteByPattern("video:*")
 		} else {
 			db.Model(&mysql.Comments{}).Where("id = ?", req.TargetID).UpdateColumn("likes", gorm.Expr("likes - ?", 1))
 		}
@@ -136,6 +157,22 @@ func GetLikeList(ctx context.Context, c *app.RequestContext) {
 		pageSize = 10
 	}
 
+	cacheKey := fmt.Sprintf("like:list:%d:%d:%d:%d", req.TargetID, req.Type, page, pageSize)
+
+	type LikeListResult struct {
+		Items []map[string]interface{}
+		Total int64
+	}
+	var cachedResult LikeListResult
+	err := redis.GetJSON(cacheKey, &cachedResult)
+	if err == nil {
+		format.Success(c, "GetLikeList", map[string]interface{}{
+			"items": cachedResult.Items,
+			"total": cachedResult.Total,
+		})
+		return
+	}
+
 	var likes []mysql.Likes
 	var total int64
 
@@ -145,7 +182,6 @@ func GetLikeList(ctx context.Context, c *app.RequestContext) {
 	offset := (page - 1) * pageSize
 	query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&likes)
 
-	// 构建返回列表，包含用户信息
 	items := make([]map[string]interface{}, len(likes))
 	for i, like := range likes {
 		var user mysql.Users
@@ -165,6 +201,12 @@ func GetLikeList(ctx context.Context, c *app.RequestContext) {
 			},
 		}
 	}
+
+	result := LikeListResult{
+		Items: items,
+		Total: total,
+	}
+	redis.SetJSON(cacheKey, result, 5*time.Minute)
 
 	format.Success(c, "GetLikeList", map[string]interface{}{
 		"items": items,

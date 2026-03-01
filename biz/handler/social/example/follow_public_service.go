@@ -4,10 +4,12 @@ package example
 
 import (
 	"VideoWeb/biz/dal/mysql"
+	"VideoWeb/biz/dal/redis"
 	format "VideoWeb/biz/handler/common_response_format"
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	example0 "VideoWeb/biz/model/common/example"
 	example "VideoWeb/biz/model/social/example"
@@ -43,6 +45,22 @@ func GetFollowList(ctx context.Context, c *app.RequestContext) {
 	}
 	if pageSize < 1 || pageSize > 50 {
 		pageSize = 10
+	}
+
+	cacheKey := fmt.Sprintf("follow:list:%d:%d:%d", userID, page, pageSize)
+
+	type FollowListResult struct {
+		Items []map[string]interface{}
+		Total int64
+	}
+	var cachedResult FollowListResult
+	err := redis.GetJSON(cacheKey, &cachedResult)
+	if err == nil {
+		format.Success(c, "followList", map[string]interface{}{
+			"items": cachedResult.Items,
+			"total": cachedResult.Total,
+		})
+		return
 	}
 
 	db := mysql.GetDB()
@@ -97,6 +115,12 @@ func GetFollowList(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
+	result := FollowListResult{
+		Items: items,
+		Total: total,
+	}
+	redis.SetJSON(cacheKey, result, 10*time.Minute)
+
 	format.Success(c, "followList", map[string]interface{}{
 		"items": items,
 		"total": total,
@@ -131,6 +155,22 @@ func GetFollowerList(ctx context.Context, c *app.RequestContext) {
 	}
 	if pageSize < 1 || pageSize > 50 {
 		pageSize = 10
+	}
+
+	cacheKey := fmt.Sprintf("follower:list:%d:%d:%d", userID, page, pageSize)
+
+	type FollowerListResult struct {
+		Items []map[string]interface{}
+		Total int64
+	}
+	var cachedResult FollowerListResult
+	err := redis.GetJSON(cacheKey, &cachedResult)
+	if err == nil {
+		format.Success(c, "followerList", map[string]interface{}{
+			"items": cachedResult.Items,
+			"total": cachedResult.Total,
+		})
+		return
 	}
 
 	db := mysql.GetDB()
@@ -184,6 +224,12 @@ func GetFollowerList(ctx context.Context, c *app.RequestContext) {
 			})
 		}
 	}
+
+	result := FollowerListResult{
+		Items: items,
+		Total: total,
+	}
+	redis.SetJSON(cacheKey, result, 10*time.Minute)
 
 	format.Success(c, "followerList", map[string]interface{}{
 		"items": items,

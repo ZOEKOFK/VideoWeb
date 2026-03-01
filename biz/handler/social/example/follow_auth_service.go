@@ -2,10 +2,13 @@ package example
 
 import (
 	"VideoWeb/biz/dal/mysql"
-	"context"
-	"net/http"
-
+	"VideoWeb/biz/dal/redis"
 	format "VideoWeb/biz/handler/common_response_format"
+	"context"
+	"fmt"
+	"net/http"
+	"time"
+
 	example0 "VideoWeb/biz/model/common/example"
 	example "VideoWeb/biz/model/social/example"
 
@@ -75,6 +78,9 @@ func FollowAction(ctx context.Context, c *app.RequestContext) {
 			return
 		}
 
+		redis.Delete(fmt.Sprintf("follow:list:%d:*", currentUserID))
+		redis.Delete(fmt.Sprintf("follower:list:%d:*", req.UserID))
+
 		format.Success(c, "follow", map[string]interface{}{
 			"message":      "关注成功",
 			"is_following": true,
@@ -91,6 +97,9 @@ func FollowAction(ctx context.Context, c *app.RequestContext) {
 				return
 			}
 		}
+
+		redis.Delete(fmt.Sprintf("follow:list:%d:*", currentUserID))
+		redis.Delete(fmt.Sprintf("follower:list:%d:*", req.UserID))
 
 		format.Success(c, "unfollow", map[string]interface{}{
 			"message":      "取消关注成功",
@@ -126,6 +135,22 @@ func GetFriendList(ctx context.Context, c *app.RequestContext) {
 		pageSize = 10
 	}
 
+	cacheKey := fmt.Sprintf("friend:list:%d:%d:%d", currentUserID, page, pageSize)
+
+	type FriendListResult struct {
+		Items []map[string]interface{}
+		Total int64
+	}
+	var cachedResult FriendListResult
+	err := redis.GetJSON(cacheKey, &cachedResult)
+	if err == nil {
+		format.Success(c, "friendList", map[string]interface{}{
+			"items": cachedResult.Items,
+			"total": cachedResult.Total,
+		})
+		return
+	}
+
 	db := mysql.GetDB()
 
 	var friendIDs []int64
@@ -152,11 +177,11 @@ func GetFriendList(ctx context.Context, c *app.RequestContext) {
 	}
 	if offset >= len(friendIDs) {
 		format.Success(c, "friendList", map[string]interface{}{
-			"items": []interface{}{},
-			"total": total,
-		})
+           	"items": []interface{}{},
+           	"total": total,
+        })
 		return
-	}
+    }
 	pagedFriendIDs := friendIDs[offset:end]
 
 	var users []mysql.Users
@@ -173,9 +198,15 @@ func GetFriendList(ctx context.Context, c *app.RequestContext) {
 			"nickname":   u.Nickname,
 			"avatar_url": u.Avatarurl,
 		})
-	}
+    }
 
-	format.Success(c, "friendList", map[string]interface{}{
+    result := FriendListResult{
+        Items: items,
+        Total: total,
+    }
+    redis.SetJSON(cacheKey, result, 10*time.Minute)
+
+    format.Success(c, "friendList", map[string]interface{}{
 		"items": items,
 		"total": total,
 	})
