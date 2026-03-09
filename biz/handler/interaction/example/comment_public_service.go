@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-
+	"log"
 	example0 "VideoWeb/biz/model/common/example"
 	example "VideoWeb/biz/model/interaction/example"
 
@@ -63,11 +63,24 @@ func GetCommentList(ctx context.Context, c *app.RequestContext) {
 		})
 		return
 	}
+	if err.Error() != "redis not connected"  {
+		log.Printf("Redis GetJSON error: %v", err)
+	}
+	
+	isNull, _ := redis.IsNullCache(cacheKey)
+	if isNull {
+		format.Success(c, "GetCommentList", map[string]interface{}{
+			"items": []mysql.Comments{},
+			"total": 0,
+		})
+		return
+	}
 
 	db := mysql.GetDB()
 
 	var video mysql.Videos
 	if err := db.First(&video, videoID).Error; err != nil {
+		redis.SetNullCache(cacheKey, 5*time.Minute)
 		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_VIDEO_NOT_EXIST, "video is not exist")
 		return
 	}
@@ -85,7 +98,11 @@ func GetCommentList(ctx context.Context, c *app.RequestContext) {
 		Items: comments,
 		Total: total,
 	}
-	redis.SetJSON(cacheKey, result, 5*time.Minute)
+	if len(comments) == 0 {
+		redis.SetNullCache(cacheKey, 5*time.Minute)
+	} else {
+		redis.SetJSON(cacheKey, result, 5*time.Minute)
+	}
 
 	format.Success(c, "GetCommentList", map[string]interface{}{
 		"items": comments,

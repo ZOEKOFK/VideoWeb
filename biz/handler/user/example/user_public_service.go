@@ -4,9 +4,11 @@ package example
 
 import (
 	"VideoWeb/biz/dal/mysql"
+	"VideoWeb/biz/dal/redis"
 	"VideoWeb/biz/my_jwt"
 	"context"
 	"net/http"
+	"strconv"
 
 	format "VideoWeb/biz/handler/common_response_format"
 	example0 "VideoWeb/biz/model/common/example"
@@ -37,15 +39,28 @@ func dealRegister(c *app.RequestContext, request *example.UserRegisterRequest) b
 		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PROGRESS_ERROR, "密码加密过程出错")
 		return false
 	}
-	request.Password = string(hashedPassword)
-	//写入数据库
+
 	db := mysql.GetDB()
-	//没有指明table的话会默认把结构体的名称作为表名
-	result := db.Table("users").Create(&request)
+	var count int64
+	db.Table("users").Where("username = ?", request.Username).Count(&count)
+	if count > 0 {
+		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PARAM_ERROR, "用户名已存在")
+		return false
+	}
+
+	user := mysql.Users{
+		Username: request.Username,
+		Password: string(hashedPassword),
+		Nickname: request.Nickname,
+	}
+	result := db.Create(&user)
 	if result.Error != nil {
 		format.Fail(c, http.StatusInternalServerError, example0.ErrorCode_PROGRESS_ERROR, result.Error.Error())
 		return false
 	}
+
+	redis.AddToBloomFilter("user", strconv.FormatUint(uint64(user.ID), 10))
+
 	return true
 }
 

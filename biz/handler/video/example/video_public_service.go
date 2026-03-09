@@ -10,6 +10,7 @@ import (
 	example "VideoWeb/biz/model/video/example"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -55,6 +56,18 @@ func SearchVideos(ctx context.Context, c *app.RequestContext) {
 		})
 		return
 	}
+	if err != nil && err.Error() != "redis not connected" && err.Error() != "cache is null" {
+		log.Printf("Redis GetJSON error: %v", err)
+	}
+
+	isNull, _ := redis.IsNullCache(cacheKey)
+	if isNull {
+		format.Success(c, "SearchVideo", map[string]interface{}{
+			"items": []mysql.Videos{},
+			"total": 0,
+		})
+		return
+	}
 
 	db := mysql.GetDB()
 	var videos []mysql.Videos
@@ -81,7 +94,11 @@ func SearchVideos(ctx context.Context, c *app.RequestContext) {
 		Items: videos,
 		Total: total,
 	}
-	redis.SetJSON(cacheKey, result, 5*time.Minute)
+	if len(videos) == 0 {
+		redis.SetNullCache(cacheKey, 5*time.Minute)
+	} else {
+		redis.SetJSON(cacheKey, result, 5*time.Minute)
+	}
 
 	format.Success(c, "SearchVideo", map[string]interface{}{
 		"items": videos,
@@ -116,6 +133,17 @@ func GetHotVideos(ctx context.Context, c *app.RequestContext) {
 		})
 		return
 	}
+	if err != nil && err.Error() != "redis not connected"{
+		log.Printf("Redis GetJSON error: %v", err)
+	}
+
+	isNull, _ := redis.IsNullCache(cacheKey)
+	if isNull {
+		format.Success(c, "SearchVideo", map[string]interface{}{
+			"items": []mysql.Videos{},
+		})
+		return
+	}
 
 	db := mysql.GetDB()
 	var videos []mysql.Videos
@@ -135,7 +163,11 @@ func GetHotVideos(ctx context.Context, c *app.RequestContext) {
 	offset := (page - 1) * limit
 	query.Order("views DESC").Offset(offset).Limit(limit).Find(&videos)
 
-	redis.SetJSON(cacheKey, videos, 10*time.Minute)
+	if len(videos) == 0 {
+		redis.SetNullCache(cacheKey, 10*time.Minute)
+	} else {
+		redis.SetJSON(cacheKey, videos, 10*time.Minute)
+	}
 
 	format.Success(c, "SearchVideo", map[string]interface{}{
 		"items": videos,
@@ -196,6 +228,15 @@ func GetUserVideos(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	isNull, _ := redis.IsNullCache(cacheKey)
+	if isNull {
+		format.Success(c, "SearchVideo", map[string]interface{}{
+			"items": []mysql.Videos{},
+			"total": 0,
+		})
+		return
+	}
+
 	var videos []mysql.Videos
 	var total int64
 
@@ -209,7 +250,11 @@ func GetUserVideos(ctx context.Context, c *app.RequestContext) {
 		Items: videos,
 		Total: total,
 	}
-	redis.SetJSON(cacheKey, result, 10*time.Minute)
+	if len(videos) == 0 {
+		redis.SetNullCache(cacheKey, 10*time.Minute)
+	} else {
+		redis.SetJSON(cacheKey, result, 10*time.Minute)
+	}
 
 	format.Success(c, "SearchVideo", map[string]interface{}{
 		"items": videos,

@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-
+	"log"
 	example0 "VideoWeb/biz/model/common/example"
 	example "VideoWeb/biz/model/social/example"
 
@@ -119,7 +119,9 @@ func GetFollowList(ctx context.Context, c *app.RequestContext) {
 		Items: items,
 		Total: total,
 	}
-	redis.SetJSON(cacheKey, result, 10*time.Minute)
+	if err := redis.SetJSON(cacheKey, result, 10*time.Minute); err != nil && err.Error() != "redis not connected" {
+		log.Printf("Redis SetJSON error: %v", err)
+	}
 
 	format.Success(c, "followList", map[string]interface{}{
 		"items": items,
@@ -229,7 +231,11 @@ func GetFollowerList(ctx context.Context, c *app.RequestContext) {
 		Items: items,
 		Total: total,
 	}
-	redis.SetJSON(cacheKey, result, 10*time.Minute)
+	if len(items) == 0 {
+		redis.SetNullCache(cacheKey, 10*time.Minute)
+	} else {
+		redis.SetJSON(cacheKey, result, 10*time.Minute)
+	}
 
 	format.Success(c, "followerList", map[string]interface{}{
 		"items": items,

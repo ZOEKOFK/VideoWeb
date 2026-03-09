@@ -35,6 +35,9 @@ func GetUserInfo(ctx context.Context, c *app.RequestContext) {
 		format.Success(c, "getInfo", userinfo)
 		return
 	}
+	//if err != nil && err.Error() != "redis not connected" {
+	//	log.Printf("Redis GetJSON error: %v", err)
+	//}
 
 	db := mysql.GetDB()
 	db.Table("users").
@@ -47,7 +50,7 @@ func GetUserInfo(ctx context.Context, c *app.RequestContext) {
 	}
 
 	redis.SetJSON(cacheKey, userinfo, 30*time.Minute)
-
+	redis.AddToBloomFilter("user", id)
 	format.Success(c, "getInfo", userinfo)
 }
 
@@ -142,6 +145,7 @@ func handleAvatarUpload(ctx context.Context, c *app.RequestContext, userID int64
 		Where("id = ?", userID).
 		First(&userinfo)
 
+	redis.AddToBloomFilter("user", strconv.FormatInt(userID, 10))
 
 	format.Success(c, "uploadAvatar", userinfo)
 }

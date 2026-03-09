@@ -189,7 +189,6 @@ func GetLikeList(ctx context.Context, c *app.RequestContext) {
 
 		items[i] = map[string]interface{}{
 			"id":         strconv.FormatUint(uint64(like.ID), 10),
-			"user_id":    strconv.FormatInt(like.UserID, 10),
 			"target_id":  strconv.FormatInt(like.TargetID, 10),
 			"type":       like.Type,
 			"created_at": like.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -206,7 +205,11 @@ func GetLikeList(ctx context.Context, c *app.RequestContext) {
 		Items: items,
 		Total: total,
 	}
-	redis.SetJSON(cacheKey, result, 5*time.Minute)
+	if len(items) == 0 {
+		redis.SetNullCache(cacheKey, 5*time.Minute)
+	} else {
+		redis.SetJSON(cacheKey, result, 5*time.Minute)
+	}
 
 	format.Success(c, "GetLikeList", map[string]interface{}{
 		"items": items,

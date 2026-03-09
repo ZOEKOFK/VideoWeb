@@ -150,6 +150,16 @@ func GetFriendList(ctx context.Context, c *app.RequestContext) {
 		})
 		return
 	}
+	if err.Error() != "redis not connected" {
+		isNull, nullErr := redis.IsNullCache(cacheKey)
+		if nullErr == nil && isNull {
+			format.Success(c, "friendList", map[string]interface{}{
+				"items": []map[string]interface{}{},
+				"total": 0,
+			})
+			return
+		}
+	}
 
 	db := mysql.GetDB()
 
@@ -163,6 +173,7 @@ func GetFriendList(ctx context.Context, c *app.RequestContext) {
 	total := int64(len(friendIDs))
 
 	if len(friendIDs) == 0 {
+		redis.SetNullCache(cacheKey, 10*time.Minute)
 		format.Success(c, "friendList", map[string]interface{}{
 			"items": []interface{}{},
 			"total": 0,
@@ -204,7 +215,11 @@ func GetFriendList(ctx context.Context, c *app.RequestContext) {
         Items: items,
         Total: total,
     }
-    redis.SetJSON(cacheKey, result, 10*time.Minute)
+    if len(items) == 0 {
+		redis.SetNullCache(cacheKey, 10*time.Minute)
+	} else {
+		redis.SetJSON(cacheKey, result, 10*time.Minute)
+	}
 
     format.Success(c, "friendList", map[string]interface{}{
 		"items": items,
