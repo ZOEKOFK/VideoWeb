@@ -138,7 +138,7 @@ CREATE TABLE FOLLOWS (
 ### 1. 修改配置
 编辑 `biz/dal/mysql/database.go`，确保数据库连接字符串与你的环境一致：
 ```go
-host := "localhost"
+db := "localhost"
 port := "3306"
 dataname := "video_web"
 username := "root"
@@ -152,6 +152,7 @@ password := "your_password"
 ```dockerfile
 FROM golang:1.25-alpine AS builder
 WORKDIR /app
+ENV GOPROXY=https://goproxy.cn,direct
 COPY . .
 RUN go mod download && go build -o server .
 
