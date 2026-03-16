@@ -26,5 +26,6 @@ func main() {
 		PathRewrite: app.NewPathSlashesStripper(1), // 去掉第一级路径
 	})
 	router.GeneratedRegister(h)
+	customizedRegister(h)
 	h.Spin()
 }

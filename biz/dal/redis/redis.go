@@ -80,6 +80,13 @@ func Set(key string, value interface{}) error {
 	return Client.Set(Ctx, key, value, 0).Err()
 }
 
+func SetWithExpiration(key string, value interface{}, expiration time.Duration) error {
+	if !isConnected {
+		return fmt.Errorf("redis not connected")
+	}
+	return Client.Set(Ctx, key, value, expiration).Err()
+}
+
 func Incr(key string) (int64, error) {
 	if !isConnected {
 		return 0, fmt.Errorf("redis not connected")

@@ -9,6 +9,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 
 	format "VideoWeb/biz/handler/common_response_format"
 	example0 "VideoWeb/biz/model/common/example"
@@ -17,6 +18,22 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"golang.org/x/crypto/bcrypt"
 )
+
+type refreshTokenRequest struct {
+	RefreshToken string `form:"refresh_token" json:"refresh_token"`
+	Remember     bool   `form:"remember" json:"remember"`
+}
+
+func resolveBearerToken(c *app.RequestContext, tokenValue string) string {
+	if tokenValue != "" {
+		return tokenValue
+	}
+	authorization := string(c.GetHeader("Authorization"))
+	if strings.HasPrefix(authorization, "Bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
+	}
+	return c.Query("refresh_token")
+}
 
 func dealRegister(c *app.RequestContext, request *example.UserRegisterRequest) bool {
 	if len(request.Password) < 8 {
@@ -86,4 +103,55 @@ func Register(ctx context.Context, c *app.RequestContext) {
 // @router /api/sessions [POST]
 func Login(ctx context.Context, c *app.RequestContext) {
 	my_jwt.AuthMiddleware.LoginHandler(ctx, c)
+}
+
+// /api/sessions/refresh
+func RefreshSession(ctx context.Context, c *app.RequestContext) {
+	var req refreshTokenRequest
+	if err := c.BindForm(&req); err != nil {
+		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_REQUEST_ERROR, err.Error())
+		return
+	}
+	refreshToken := resolveBearerToken(c, req.RefreshToken)
+	if refreshToken == "" {
+		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PARAM_ERROR, "refresh token is required")
+		return
+	}
+	accessToken, accessExpire, newRefreshToken, refreshExpire, userID, err := my_jwt.RotateTokenPair(refreshToken, req.Remember)
+	if err != nil {
+		format.Fail(c, http.StatusUnauthorized, example0.ErrorCode_USER_NOT_LOGIN, err.Error())
+		return
+	}
+	db := mysql.GetDB()
+	userinfo := mysql.Users{}
+	db.Table("users").
+		Select("id, username, avatar_url, created_at, updated_at, nickname, deleted_at").
+		Where("id = ?", userID).
+		First(&userinfo)
+	format.Success(c, "refresh", map[string]interface{}{
+		"userinfo":       userinfo,
+		"access_token":   accessToken,
+		"access_expire":  accessExpire.Format("2006-01-02 15:04:05"),
+		"refresh_token":  newRefreshToken,
+		"refresh_expire": refreshExpire.Format("2006-01-02 15:04:05"),
+	})
+}
+
+// /api/sessions
+func Logout(ctx context.Context, c *app.RequestContext) {
+	var req refreshTokenRequest
+	if err := c.BindForm(&req); err != nil {
+		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_REQUEST_ERROR, err.Error())
+		return
+	}
+	refreshToken := resolveBearerToken(c, req.RefreshToken)
+	if refreshToken == "" {
+		format.Fail(c, http.StatusBadRequest, example0.ErrorCode_PARAM_ERROR, "refresh token is required")
+		return
+	}
+	if err := my_jwt.RevokeRefreshToken(refreshToken); err != nil {
+		format.Fail(c, http.StatusUnauthorized, example0.ErrorCode_USER_NOT_LOGIN, err.Error())
+		return
+	}
+	format.Success(c, "logout", nil)
 }

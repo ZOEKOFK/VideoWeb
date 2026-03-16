@@ -4,12 +4,14 @@ package main
 
 import (
 	handler "VideoWeb/biz/handler"
+	userHandler "VideoWeb/biz/handler/user/example"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 
 // customizeRegister registers customize routers.
 func customizedRegister(r *server.Hertz) {
 	r.GET("/ping", handler.Ping)
-
-	// your code ...
+	api := r.Group("/api")
+	api.POST("/sessions/refresh", userHandler.RefreshSession)
+	api.DELETE("/sessions", userHandler.Logout)
 }

@@ -47,19 +47,6 @@ func SearchVideos(ctx context.Context, c *app.RequestContext) {
 		Items []mysql.Videos
 		Total int64
 	}
-	var cachedResult SearchResult
-	err := redis.GetJSON(cacheKey, &cachedResult)
-	if err == nil && len(cachedResult.Items) > 0 {
-		format.Success(c, "SearchVideo", map[string]interface{}{
-			"items": cachedResult.Items,
-			"total": cachedResult.Total,
-		})
-		return
-	}
-	if err != nil && err.Error() != "redis not connected" && err.Error() != "cache is null" {
-		log.Printf("Redis GetJSON error: %v", err)
-	}
-
 	isNull, _ := redis.IsNullCache(cacheKey)
 	if isNull {
 		format.Success(c, "SearchVideo", map[string]interface{}{
@@ -90,14 +77,8 @@ func SearchVideos(ctx context.Context, c *app.RequestContext) {
 	offset := (page - 1) * pageSize
 	query.Offset(offset).Limit(pageSize).Find(&videos)
 
-	result := SearchResult{
-		Items: videos,
-		Total: total,
-	}
 	if len(videos) == 0 {
 		redis.SetNullCache(cacheKey, 5*time.Minute)
-	} else {
-		redis.SetJSON(cacheKey, result, 5*time.Minute)
 	}
 
 	format.Success(c, "SearchVideo", map[string]interface{}{

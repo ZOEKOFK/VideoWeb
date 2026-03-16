@@ -11,7 +11,7 @@ var DB *gorm.DB
 
 func InitDB() *gorm.DB {
 	driverName := "mysql"
-	host := "localhost"
+	host := "localhost" //linux这里写的是host变为db
 	port := "3306"
 	dataname := "video_web"
 	username := "root"

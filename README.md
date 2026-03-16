@@ -9,8 +9,9 @@
 - **数据库 ORM**: [GORM](https://gorm.io/) (v1)
 - **存储**:
   - **MySQL**: 核心业务数据持久化
-  - **Redis**: 缓存与状态管理
-- **认证**: [JWT](https://github.com/hertz-contrib/jwt) (基于 hertz-contrib/jwt)
+  - **Redis**: 缓存、状态管理及 **Refresh Token 白名单存储**
+- **认证**: 双 Token 机制 (Access Token + Refresh Token)
+  - 基于 `golang-jwt/jwt/v4` 手动签发与 `hertz-contrib/jwt` 中间件校验
 - **部署**: Docker 容器化
 
 ## ✨ 核心功能
@@ -19,6 +20,24 @@
 - **视频模块**: 视频上传、搜索、热门排行、用户视频列表（视频文件存储于本地服务器）。
 - **互动系统**: 视频点赞、评论（支持二级评论/父子嵌套结构）。
 - **社交系统**: 关注与粉丝关系管理。
+
+## 🔐 认证机制 (Dual Token Authentication)
+
+本项目采用安全性更高的双 Token 认证方案：
+
+1.  **Access Token (短期)**:
+    - 有效期：15 分钟
+    - 用途：携带于 Header (`Authorization: Bearer <token>`)，用于请求业务接口。
+2.  **Refresh Token (长期)**:
+    - 有效期：7 天 (默认) / 30 天 (勾选 "记住我")
+    - 用途：用于在 Access Token 过期后换取新的一对 Token。
+    - 安全保障：后端通过 Redis 维护 `jti` (JWT ID) 白名单。一旦执行登出 (Logout) 或 Token 轮换 (Rotation)，旧的 Refresh Token 立即失效。
+
+### 认证相关接口
+
+- **登录**: `POST /api/sessions` (返回双 Token)
+- **刷新**: `POST /api/sessions/refresh` (换领新 Token)
+- **登出**: `DELETE /api/sessions` (撤销 Refresh Token)
 
 ## 📁 项目目录结构
 

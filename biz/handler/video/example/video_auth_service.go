@@ -100,6 +100,5 @@ func UploadVideo(ctx context.Context, c *app.RequestContext) {
 		format.Fail(c, http.StatusInternalServerError, example0.ErrorCode_PROGRESS_ERROR, "创建视频记录失败")
 		return
 	}
-
 	format.Success(c, "uploadVideo", video)
 }
